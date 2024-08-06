@@ -2639,7 +2639,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::collective(
     work->stashed_for_allocator_safety_->push_back(input);
   }
 
-  at::cuda::OptionalCUDAGuard gpuGuard;
+  at::cuda::OptionalCUDAGuard gpuGuard(device.index());
 
   // Start event should only be recorded before the ncclGroupStart()
   if (work->timingEnabled_) {
@@ -2799,8 +2799,6 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::collectiveCoalesced(
     work->stashed_for_allocator_safety_ =
         std::make_shared<std::vector<at::Tensor>>(inputs);
   }
-
-  at::cuda::OptionalCUDAGuard gpuGuard;
 
   // Start event should only be recorded before the ncclGroupStart() (which
   // happens inside AutoNcclGroup guard below)
@@ -3071,7 +3069,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::pointToPoint(
   }
 
   // is gpuGuard needed for the if block below, or can i swap them
-  at::cuda::OptionalCUDAGuard gpuGuard;
+  at::cuda::OptionalCUDAGuard gpuGuard(device.index());
 
   if (!coalescing_state_) {
     // Start event should only be recorded before the ncclGroupStart()
@@ -3962,13 +3960,13 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::barrier(const BarrierOptions& opts) {
     // ensure that each process is on a different GPU
     auto numGPUs = at::cuda::getNumGPUs();
     int16_t deviceIdx = static_cast<int16_t>(rank_ % numGPUs);
-    LOG(INFO)
+    LOG(WARNING)
         << logPrefix()
         << c10::str(
-               " using GPU ",
+               "using GPU ",
                deviceIdx,
                " to perform barrier as devices used by this process are currently unknown. ",
-               "This can potentially cause a hang if this rank to GPU mapping is incorrect.",
+               "This can potentially cause a hang if this rank to GPU mapping is incorrect. ",
                "Specify device_ids in barrier() to force use of a particular device.");
     devices.emplace_back(guessDeviceForRank());
   } else {
@@ -3979,8 +3977,9 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::barrier(const BarrierOptions& opts) {
 
   // Use one device only
   auto device = devices.back();
-  at::Tensor barrierTensor =
-      at::empty({1}, at::TensorOptions().device(device).dtype(at::kByte));
+  at::cuda::OptionalCUDAGuard gpuGuard(device.index());
+  at::Tensor barrierTensor = at::empty(
+      {1}, at::TensorOptions().device(at::DeviceType::CUDA).dtype(at::kByte));
   // All reduce to achieve the barrier
   auto work = allreduce_impl(barrierTensor);
 
