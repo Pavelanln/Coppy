@@ -432,6 +432,9 @@ def reduce_scatter_tensor_coalesced(
 # Today, this maps 1:1 with "aten ops that are views".
 def _is_view_op(tgt):
     assert isinstance(tgt, torch._ops.OpOverload)
+    # Special case for `aten.to`. See issue: https://github.com/pytorch/pytorch/issues/133421
+    if "to" in tgt.__name__.split('.'):
+        return False
     schema = tgt._schema
     if len(schema.arguments) > 0:
         first_arg = schema.arguments[0]
