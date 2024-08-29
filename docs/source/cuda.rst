@@ -120,10 +120,18 @@ Memory management
      get_allocator_backend
      CUDAPluggableAllocator
      change_current_allocator
-     MemPool
-     MemPoolContext
+
+.. autoclass:: torch.cuda.MemPool
+    :members:
+    :undoc-members:
+
+.. autoclass:: torch.cuda.MemPoolContext
+    :members:
+    :undoc-members:
 
 .. autoclass:: torch.cuda.use_mem_pool
+    :members:
+    :undoc-members:
 
 .. FIXME The following doesn't seem to exist. Is it supposed to?
    https://github.com/pytorch/pytorch/issues/27785
