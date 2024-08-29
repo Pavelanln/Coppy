@@ -5072,6 +5072,10 @@ class TestMemPool(TestCase):
         # twice based on the use_count()
         self.assertEqual(pool.use_count(), 0)
 
+        # pool should have 2 segments since we made two allocations above in
+        # in the same pool
+        self.assertEqual(len(pool.snapshot()), 2)
+
     def test_mempool_context(self):
         active_pool = torch.cuda.MemPoolContext.active_pool()
 
