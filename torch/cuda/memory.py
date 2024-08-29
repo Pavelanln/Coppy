@@ -1072,6 +1072,17 @@ class MemPool(_MemPool):
         del ctx
         return snapshot
 
+    def empty_cache(self):
+        r"""Convenience function that attempts to restore memory back to the system.
+
+        Note that the memory in a pool can only be free'd when its use count is 0.
+        When the use count is 0, :func:`~torch.cuda.empty_cache` will restore memory
+        back to the system. Use release() function to mark a pool as freeable.
+        """
+        ctx = MemPoolContext(self)
+        torch.cuda.empty_cache()
+        del ctx
+
 
 @contextlib.contextmanager
 def use_mem_pool(pool: MemPool, device: Union[Device, int] = None):
