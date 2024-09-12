@@ -290,6 +290,7 @@ def core_aten_decompositions() -> Dict[torch._ops.OperatorBase, Callable]:
             aten.deg2rad,
             aten.deg2rad_,
             aten.detach,
+            aten.diagonal_copy,
             aten.diag_embed,
             aten.diagonal_backward,
             aten.dot,
