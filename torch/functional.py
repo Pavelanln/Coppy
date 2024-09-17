@@ -1,4 +1,5 @@
 # mypy: allow-untyped-defs
+import importlib
 import itertools
 import operator
 from typing import Any, List, Optional, Sequence, Tuple, TYPE_CHECKING, Union
@@ -28,6 +29,7 @@ __all__ = [
     "block_diag",
     "cdist",
     "chain_matmul",
+    "cumsum",
     "einsum",
     "istft",
     "lu",
@@ -2033,6 +2035,31 @@ def chain_matmul(*matrices, out=None):
         return _VF.chain_matmul(matrices)  # type: ignore[attr-defined]
     else:
         return _VF.chain_matmul(matrices, out=out)  # type: ignore[attr-defined]
+
+
+def cumsum(
+    self: Tensor,
+    dim: Optional[int] = None,
+    *,
+    dtype: Optional[torch.dtype] = None,
+    out: Optional[Tensor] = None,
+    axis: Optional[int] = None,
+):
+    if has_torch_function_unary(self):
+        return handle_torch_function(
+            cumsum, (self,), self, dim, dtype=dtype, out=out, axis=axis
+        )
+    if not torch.jit.is_scripting():
+        if torch.are_deterministic_algorithms_enabled() and self.is_cuda:
+            ref_func = importlib.import_module("torch._refs").cumsum
+            if dim is None and axis is not None:
+                return ref_func(self, axis, dtype=dtype, out=out)
+            else:
+                return ref_func(self, dim, dtype=dtype, out=out)
+    if dim is None and axis is not None:
+        return _VF.cumsum(self, axis, dtype=dtype, out=out)
+    else:
+        return _VF.cumsum(self, dim, dtype=dtype, out=out)
 
 
 def _lu_impl(A, pivot=True, get_infos=False, out=None):
