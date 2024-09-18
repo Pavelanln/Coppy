@@ -43,6 +43,7 @@ if typing.TYPE_CHECKING:
     import os
 
     import numpy as np
+import numpy.typing as npt
 
 
 # Define utilities to convert PyTorch data types so users do not need to specify manually
@@ -100,7 +101,7 @@ class TorchTensor(ir.Tensor):
             tensor, dtype=_torch_dtype_to_onnx_dtype(tensor.dtype), name=name
         )
 
-    def numpy(self) -> np.ndarray:
+    def numpy(self) -> npt.NDArray:
         self.raw: torch.Tensor
         if self.dtype == ir.DataType.BFLOAT16:
             return self.raw.view(torch.uint16).numpy(force=True)
