@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import Any, Mapping, Sequence, TYPE_CHECKING
+from typing import Any, Callable, Mapping, Sequence, TYPE_CHECKING
 
 import torch
 from torch.onnx._internal._lazy_import import onnxscript_apis, onnxscript_ir as ir
-from torch.onnx._internal.exporter import _core, _onnx_program
+from torch.onnx._internal.exporter import _core, _onnx_program, _registration
 
 
 if TYPE_CHECKING:
@@ -125,6 +125,7 @@ def export_compat(
     input_names: Sequence[str] | None = None,
     output_names: Sequence[str] | None = None,
     opset_version: int | None = None,
+    custom_decomp_table: dict[Callable, tuple[Callable, bool]] | None = None,
     dynamic_axes: Mapping[str, Mapping[int, str]]
     | Mapping[str, Sequence[int]]
     | None = None,
@@ -157,12 +158,16 @@ def export_compat(
                 output_names=set(output_names or ()),
             )
 
+    registry = _registration.ONNXRegistry.from_torchlib()
+    if custom_decomp_table is not None:
+        for torch_op, (onnx_op, is_complex) in custom_decomp_table.items():
+            registry.register_op(torch_op, onnx_op, is_complex=is_complex)
     try:
         onnx_program = _core.export(
             model,
             args,
             kwargs,
-            registry=None,
+            registry=registry,
             dynamic_shapes=dynamic_shapes,
             input_names=input_names,
             output_names=output_names,
