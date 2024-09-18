@@ -1646,16 +1646,16 @@ def expectedFailureMeta(fn):
     return skipIfTorchDynamo()(expectedFailure("meta")(fn))
 
 
-def expectedFailureMPS(fn):
-    return expectedFailure("mps")(fn)
-
-
 def expectedFailureXLA(fn):
     return expectedFailure("xla")(fn)
 
 
 def expectedFailureHPU(fn):
     return expectedFailure("hpu")(fn)
+
+
+def expectedFailureMPS(fn):
+    return expectedFailure("mps")(fn)
 
 
 # Skips a test on CPU if LAPACK is not available.
