@@ -1283,6 +1283,14 @@ class AlgorithmSelectorCache(PersistentCache):
 
             def precompile_with_captured_stdout(choice):
                 with restore_stdout_stderr(initial_stdout, initial_stderr):
+                    if self.lookup(
+                        [choice],
+                        name,
+                        inputs_key,
+                        benchmark=None,
+                    ):
+                        return
+
                     return choice.precompile()
 
             executor = ThreadPoolExecutor(max_workers=num_workers)
