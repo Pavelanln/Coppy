@@ -1284,7 +1284,7 @@ def _is_supported_equivalence(expr):
             (_is_supported_equivalence(lhs) and isinstance(rhs, sympy.Integer)) or
             (isinstance(lhs, sympy.Integer) and _is_supported_equivalence(rhs))
         )
-    return isinstance(expr, sympy.Symbol)
+    return isinstance(expr, (sympy.Symbol, sympy.Integer))
 
 def _has_uninterpretable_sympy_function(expr) -> bool:
     """
@@ -4834,8 +4834,12 @@ class ShapeEnv:
         # Precondition: a == tgt
         assert isinstance(a, sympy.Symbol)
 
-        if self.allow_complex_guards_as_runtime_asserts and not _is_supported_equivalence(tgt):
-            return  # continuing leads to placeholder shapes having complex expressions that we can't resolve
+        if self.prefer_deferred_runtime_asserts_over_guards and not _is_supported_equivalence(tgt):
+            # Hybrid SymInts can turn runtime asserts into replacement calls for complex expressions, e.g. s0*s1 == s2.
+            # Continuing here leads to placeholder shapes having complex expressions that we can't do anything useful with,
+            # so we avoid setting replacements in these cases. Non-complex expressions - integers (specialization), symbols,
+            # linear expressions (a*s+b) - are fine, and necessary to avoid export raising constraint violations.
+            return
 
         # Handles nested tensor symbolic variables which don't have
         # var_to_range bounds
