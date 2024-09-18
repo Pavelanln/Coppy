@@ -3277,6 +3277,43 @@ print(f"{{r1}}, {{r2}}")
         x = torch.cuda.device_count()
         self.assertEqual(f"{x}, 1", r)
 
+    def test_cachingAllocator_raw_alloc(self):
+        # Test that raw_alloc respects the setting that
+        # activates/deactivates the caching allocator
+
+        # Helper function that calls raw_alloc and returns
+        # relevant field in data structure
+        def requested_bytes_alloc_stats(raw_alloc_size, stream):
+            start = torch.cuda.memory_stats()["requested_bytes.all.allocated"]
+            torch._C._cuda_cudaCachingAllocator_raw_alloc(raw_alloc_size, stream)
+            finish = torch.cuda.memory_stats()["requested_bytes.all.allocated"]
+            return finish - start
+
+        torch.cuda.empty_cache()
+        device = torch._C._cuda_getDevice()
+        stream = torch._C._cuda_getCurrentRawStream(device)
+        torch._C._cuda_resetAccumulatedMemoryStats(device)
+
+        # size of allocation
+        raw_alloc_size = 1024 * 1024  # 1 MB
+
+        try:
+            # Deactivate the caching allocator
+            torch.cuda.enable_cache(False)
+
+            # For a deactivated caching allocator, result is zero
+            cuda_alloc_size = requested_bytes_alloc_stats(raw_alloc_size, stream)
+            self.assertEqual(cuda_alloc_size, 0)
+
+        finally:
+            # Make sure we get back to the default state that is
+            # an activated caching allocator
+            torch.cuda.enable_cache(True)
+
+            # For an active caching allocator, result matches raw_alloc_size
+            cuda_alloc_size = requested_bytes_alloc_stats(raw_alloc_size, stream)
+            self.assertEqual(cuda_alloc_size, raw_alloc_size)
+
     @unittest.skip("Disabling as USE_CUFILE=0 by default in builds")
     def test_gds_fails_in_ci(self):
         if IS_WINDOWS or TEST_WITH_ROCM:
