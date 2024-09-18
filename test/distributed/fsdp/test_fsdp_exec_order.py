@@ -11,12 +11,12 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import ShardingStrategy
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
-    instantiate_parametrized_tests,
     parametrize,
     run_tests,
     TEST_WITH_DEV_DBG_ASAN,
+    TEST_CUDA,
 )
-
+from torch.testing._internal.common_device_type import instantiate_device_type_tests
 
 if not dist.is_available():
     print("Distributed not available, skipping tests", file=sys.stderr)
@@ -88,19 +88,19 @@ class Model(torch.nn.Module):
     @staticmethod
     def wrap(sharding_strategy: ShardingStrategy, device: torch.device):
         model = Model()
-        model.layer1 = FSDP(model.layer1, sharding_strategy=sharding_strategy)
-        model.layer2 = FSDP(model.layer2, sharding_strategy=sharding_strategy)
-        fsdp_model = FSDP(model, sharding_strategy=sharding_strategy)
+        model.layer1 = FSDP(model.layer1, sharding_strategy=sharding_strategy, device_id=device)
+        model.layer2 = FSDP(model.layer2, sharding_strategy=sharding_strategy, device_id=device)
+        fsdp_model = FSDP(model, sharding_strategy=sharding_strategy, device_id=device)
         return fsdp_model.to(device)
 
 
 class TestFSDPExecOrder(FSDPTest):
-    def setUp(self):
-        super().setUp()
+    #def setUp(self):
+    #    super().setUp()
 
     @property
     def device(self):
-        return torch.device("cuda")
+        return torch.device("cuda") if TEST_CUDA else torch.device("hpu", torch.hpu.current_device())
 
     @skip_if_lt_x_gpu(2)
     @parametrize(
@@ -209,8 +209,7 @@ class TestFSDPExecOrder(FSDPTest):
         # If we still validate the forward execution order in eval mode, then
         # an `AssertionError` will be raised above for both sharding strategies
 
-
-instantiate_parametrized_tests(TestFSDPExecOrder)
-
+devices = ("cuda", "hpu")
+instantiate_device_type_tests(TestFSDPExecOrder, globals(), only_for=devices)
 if __name__ == "__main__":
     run_tests()
