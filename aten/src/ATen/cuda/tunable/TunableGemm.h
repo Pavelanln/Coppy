@@ -22,6 +22,7 @@
 #include <c10/util/Float8_e5m2.h>
 #include <c10/util/Float8_e5m2fnuz.h>
 #include <c10/util/StringUtil.h>
+#include <cstdio>
 
 namespace at::cuda::tunable {
 
@@ -135,57 +136,57 @@ inline bool IsZero(c10::complex<float> v) {
 }
 
 template <typename T>
-inline std::string TypeName(T v) {
+inline const char* TypeName(T v) {
   return "unknown";
 }
 
 template <>
-inline std::string TypeName(float v) {
+inline const char* TypeName(float v) {
   return "float";
 }
 
 template <>
-inline std::string TypeName(double v) {
+inline const char* TypeName(double v) {
   return "double";
 }
 
 template <>
-inline std::string TypeName(BFloat16 v) {
+inline const char* TypeName(BFloat16 v) {
   return "BFloat16";
 }
 
 template <>
-inline std::string TypeName(Half v) {
+inline const char* TypeName(Half v) {
   return "Half";
 }
 
 template <>
-inline std::string TypeName(Float8_e4m3fn v) {
+inline const char* TypeName(Float8_e4m3fn v) {
   return "Float8_e4m3fn";
 }
 
 template <>
-inline std::string TypeName(Float8_e5m2 v) {
+inline const char* TypeName(Float8_e5m2 v) {
   return "Float8_e5m2";
 }
 
 template <>
-inline std::string TypeName(Float8_e4m3fnuz v) {
+inline const char* TypeName(Float8_e4m3fnuz v) {
   return "Float8_e4m3fnuz";
 }
 
 template <>
-inline std::string TypeName(Float8_e5m2fnuz v) {
+inline const char* TypeName(Float8_e5m2fnuz v) {
   return "Float8_e5m2fnuz";
 }
 
 template <>
-inline std::string TypeName(c10::complex<double> v) {
+inline const char* TypeName(c10::complex<double> v) {
   return "c10::complex<double>";
 }
 
 template <>
-inline std::string TypeName(c10::complex<float> v) {
+inline const char* TypeName(c10::complex<float> v) {
   return "c10::complex<float>";
 }
 
@@ -218,7 +219,15 @@ class GemmTunableOp : public TunableOp<GemmParams<T>, StreamTimer> {
   }
 
   std::string Signature() override {
-    return c10::str("GemmTunableOp_", TypeName<T>(T{}), "_", BlasOpToString(ALayout), BlasOpToString(BLayout));
+    const int buf_len = 64;
+    char buf[buf_len];
+    int ret;
+
+    ret = snprintf(buf, buf_len, "GemmTunableOp_%s_%c%c", TypeName<T>(T{}), BlasOpToString(ALayout), BlasOpToString(BLayout));
+
+    TORCH_CHECK(ret > 0 && ret < buf_len, "TunableOp: Signature formatting error occured. Return value = ", ret);
+
+    return std::string(buf, ret);
   }
 };
 
@@ -244,7 +253,15 @@ class GemmAndBiasTunableOp : public TunableOp<GemmAndBiasParams<T>, StreamTimer>
   }
 
   std::string Signature() override {
-    return c10::str("GemmAndBiasTunableOp_", TypeName<T>(T{}), "_", BlasOpToString(ALayout), BlasOpToString(BLayout));
+    const int buf_len = 64;
+    char buf[buf_len];
+    int ret;
+
+    ret = snprintf(buf, buf_len, "GemmAndBiasTunableOp_%s_%c%c", TypeName<T>(T{}), BlasOpToString(ALayout), BlasOpToString(BLayout));
+
+    TORCH_CHECK(ret > 0 && ret < buf_len, "TunableOp: Signature formatting error occured. Return value = ", ret);
+
+    return std::string(buf, ret);
   }
 };
 
@@ -277,7 +294,15 @@ class GemmStridedBatchedTunableOp : public TunableOp<GemmStridedBatchedParams<T>
   }
 
   std::string Signature() override {
-    return c10::str("GemmStridedBatchedTunableOp_", TypeName<T>(T{}), "_", BlasOpToString(ALayout), BlasOpToString(BLayout));
+    const int buf_len = 64;
+    char buf[buf_len];
+    int ret;
+
+    ret = snprintf(buf, buf_len, "GemmStridedBatchedTunableOp_%s_%c%c", TypeName<T>(T{}), BlasOpToString(ALayout), BlasOpToString(BLayout));
+
+    TORCH_CHECK(ret > 0 && ret < buf_len, "TunableOp: Signature formatting error occured. Return value = ", ret);
+
+    return std::string(buf, ret);
   }
 };
 
@@ -295,11 +320,19 @@ class ScaledGemmTunableOp : public TunableOp<ScaledGemmParams<CT>, StreamTimer> 
   }
 
   std::string Signature() override {
-    return c10::str("ScaledGemmTunableOp",
-            "_", TypeName<AT>(AT{}),
-            "_", TypeName<BT>(BT{}),
-            "_", TypeName<CT>(CT{}),
-            "_", BlasOpToString(ALayout), BlasOpToString(BLayout));
+    const int buf_len = 128;
+    char buf[buf_len];
+    int ret;
+
+    ret = snprintf(buf, buf_len, "ScaledGemmTunableOp_%s_%s_%s_%c%c",
+            TypeName<AT>(AT{}),
+            TypeName<BT>(BT{}),
+            TypeName<CT>(CT{}),
+            BlasOpToString(ALayout), BlasOpToString(BLayout));
+
+    TORCH_CHECK(ret > 0 && ret < buf_len, "TunableOp: Signature formatting error occured. Return value = ", ret);
+
+    return std::string(buf, ret);
   }
 };
 
