@@ -738,6 +738,13 @@ class SkipFunctionVariable(VariableTracker):
                     )
                     # also warn on it because most users won't see the graph break message
                     torch._dynamo.utils.warn_once(msg)
+            if self.value.__qualname__ == "allow_in_graph":
+                msg = (
+                    "Graph break due to usage of an arbitrary function with "
+                    "allow_in_graph decorator. Usage of an arbitrary function "
+                    "allowed in the graph doesn't guarantee that the code being "
+                    "traced is represented by the full FX graph."
+                )
             msg += f"', {self.reason}'" if self.reason else ""
             unimplemented(msg)
 
