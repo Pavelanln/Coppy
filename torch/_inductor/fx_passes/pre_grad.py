@@ -270,9 +270,11 @@ def pre_grad_passes(gm: torch.fx.GraphModule, example_inputs=None):
             config.pre_grad_custom_pass(gm.graph)
     stable_topological_sort(gm.graph)
 
-    from .quantization import quant_lift_up
+    from .quantization import quant_lift_up, register_woq_mm_int4_pattern
 
     quant_lift_up(gm)
+    if config.max_autotune and "CPP" in config.max_autotune_gemm_backends:
+        register_woq_mm_int4_pattern(gm)
 
     gm.graph.lint()
     gm.recompile()
