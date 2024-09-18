@@ -6238,7 +6238,11 @@ def slice_view_tensor(dst, dim, idx):
 
 @register_lowering(scan_op)
 def scan(combine_subgraph, init, inputs, dim, reverse, additional_inputs):
-    from torch._higher_order_ops.scan import _extract_carry_and_out, stack_y
+    from torch._higher_order_ops.scan import (
+        _extract_carry_and_out,
+        extract_scan_args,
+        stack_y,
+    )
 
     # Create a clone of init that act as the first carry to subgraph
     init = [clone(x) for x in init]
@@ -6247,9 +6251,6 @@ def scan(combine_subgraph, init, inputs, dim, reverse, additional_inputs):
     num_xs = len(inputs)
     num_additional_inputs = len(additional_inputs)
     specialized_dim = int(dim)
-
-    def extract_scan_args(combine_subgraph, init, xs, dim, reverse, additional_inputs):
-        return combine_subgraph, init, xs, dim, reverse, additional_inputs
 
     def _extract_init_xs_additional(flat_args: List[Any]):
         return (
