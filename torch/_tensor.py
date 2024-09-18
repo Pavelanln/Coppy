@@ -1080,6 +1080,16 @@ class Tensor(torch._C.TensorBase):
     __neg__ = _C.TensorBase.neg
     __abs__ = _C.TensorBase.abs
 
+    @_handle_torch_function_and_wrap_type_error_to_not_implemented
+    def cumsum(
+        self,
+        dim,
+        *,
+        dtype=None,
+        out=None,
+    ):
+        return torch.cumsum(self, dim, dtype=dtype, out=out)
+
     def __len__(self):
         if has_torch_function_unary(self):
             return handle_torch_function(Tensor.__len__, (self,), self)
