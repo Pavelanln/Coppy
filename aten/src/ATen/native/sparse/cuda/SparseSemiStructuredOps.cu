@@ -3,7 +3,18 @@
 #include <ATen/cuda/CUDAUtils.h>
 #include <ATen/Dispatch.h>
 
-#if defined(USE_ROCM) || defined(_MSC_VER) || (defined(CUDA_VERSION) && CUDA_VERSION < 11080)
+#if defined(_MSC_VER) || (defined(CUDA_VERSION) && CUDA_VERSION < 11080)
+#elif defined(USE_ROCM)
+#include <ck/ck.hpp>
+#include <ck/tensor_operation/gpu/device/tensor_layout.hpp>
+#include <ck/utility/data_type.hpp>
+#include <ck/library/reference_tensor_operation/cpu/reference_gemm.hpp>
+#include <ck/library/utility/check_err.hpp>
+#include <ck/library/utility/device_memory.hpp>
+#include <ck/library/utility/fill.hpp>
+#include <ck/library/utility/host_tensor.hpp>
+#include <ck/library/utility/host_tensor_generator.hpp>
+#include <ck/library/utility/literals.hpp>
 #else
 #include <cuda_runtime.h>
 #include <cutlass/cutlass.h>
@@ -15,8 +26,8 @@
 
 #include <type_traits>
 #include <tuple>
-
-#if defined(USE_ROCM) || defined(_MSC_VER) || (defined(CUDA_VERSION) && CUDA_VERSION < 11080)
+//TODO: add check for ROCm
+#if defined(_MSC_VER) || (defined(CUDA_VERSION) && CUDA_VERSION < 11080)
 #else
 #define CUTLASS_STATUS_CHECK(status)                                    \
   {                                                                     \
@@ -27,7 +38,7 @@
 #endif
 
 namespace at::native {
-
+//TODO: spgemm with composable kernel
 #if defined(USE_ROCM) || defined(_MSC_VER) || (defined(CUDA_VERSION) && CUDA_VERSION < 11080)
 #else
 // Wrapper function for CUTLASS sparse GEMM implementation, used
@@ -806,8 +817,36 @@ Tensor _sparse_semi_structured_addmm(
 
 // Following is just for testing purposes.
 namespace at::native {
+//TODO : Remove this function after testing, use hip to cuda mapping
+#if defined(USE_ROCM)
+template <typename Element>
+void reorder_meta(Element* dest, const Element* src,
+                  const int problem_size_m, const int problem_size_k) {
+  const int group = (sizeof(Element) == 2) ? 32 : 16;
+  const int interweave = (sizeof(Element) == 2) ? 4 : 2;
 
-#if defined(USE_ROCM) || defined(_MSC_VER) || (defined(CUDA_VERSION) && CUDA_VERSION < 11080)
+  for (int m = 0; m < problem_size_m; m++) {
+    for (int k = 0; k < problem_size_k; k++) {
+      // First reorder the rows
+      int dest_row = (m / group) * group + (m % 8) * interweave + (m % group) / 8;
+      int dest_col = k;
+
+      // Next swizzle the 2x2 blocks from Z to N
+      if ((dest_row % 2 == 0) && (dest_col % 2 == 1)) {
+        ++dest_row;
+        --dest_col;
+      } else if ((dest_row % 2 == 1) && (dest_col % 2 == 0)) {
+        --dest_row;
+        ++dest_col;
+      }
+
+      dest[dest_row * problem_size_k + dest_col] = src[m * problem_size_k + k];
+    }
+  }
+}
+#elif defined(_MSC_VER) || (defined(CUDA_VERSION) && CUDA_VERSION < 11080)
+ AT_ERROR(__func__, " : CUTLASS not supported");
+    return Tensor{};
 #else
 // Copied from tools/util/include/host_reorder.h, from CUTLASS source
 // tree.  This is for simplicity - namely, this file is not under
@@ -845,7 +884,7 @@ static void reorder_meta(cutlass::TensorRef<Element, LayoutDest> dest,
 
 std::tuple<Tensor, Tensor>
 _to_sparse_semi_structured(const Tensor& dense) {
-#if defined(USE_ROCM) || defined(_MSC_VER) || (defined(CUDA_VERSION) && CUDA_VERSION < 11080)
+#if defined(_MSC_VER) || (defined(CUDA_VERSION) && CUDA_VERSION < 11080)
   AT_ERROR(__func__, " : CUTLASS not supported");
   return std::make_tuple(Tensor{}, Tensor{});
 #else
@@ -855,14 +894,14 @@ _to_sparse_semi_structured(const Tensor& dense) {
               dense.dim(), " dims");
 
   // Determine PyTorch datatype for the metadata matrix.
-  auto meta_dtype = at::kChar;
+  auto meta_dtype= at::kChar;
   auto ksparse = 0;
   auto dense_elems_per_meta_elem = 0;
   if (dense.dtype() == at::kChar) {
     meta_dtype = at::kInt;
     ksparse = 4;
     dense_elems_per_meta_elem = 32;
-  } else if (dense.dtype() == at::kHalf || dense.dtype() == at::kBFloat16) {
+  } else if (dense.dtype() = at::kHalf || dense.dtype() == at::kBFloat16) {
     meta_dtype = at::kShort;
     ksparse = 4;
     dense_elems_per_meta_elem = 16;
@@ -945,21 +984,50 @@ _to_sparse_semi_structured(const Tensor& dense) {
   }
 
   auto meta_reordered_cpu = meta_cpu.new_empty({meta_nrows, meta_ncols});
+  
+#ifdef USE_ROCM
+  using MetaLayout = ck::tensor_layout::gemm::RowMajor;
+  using MetaReorderedLayout = ck::tensor_layout::gemm::ColumnMajor;
+#else
   using MetaLayout = cutlass::layout::RowMajor;
   using MetaReorderedLayout = cutlass::layout::ColumnMajorInterleaved<2>;
+#endif
+  
   if (meta_dtype == at::kShort) {
     using MetaElement = int16_t;
+#ifdef USE_ROCM
+    auto meta_cpu_ref =
+      ck::wrapper::make_tensor<ck::wrapper::MemoryTypeEnum::Generic>(meta_cpu.data_ptr<MetaElement>(), MetaLayout::packed({meta_nrows, meta_ncols}));
+    auto meta_reordered_cpu_ref =
+      ck::wrapper::make_tensor<ck::wrapper::MemoryTypeEnum::Generic>(meta_reordered_cpu.data_ptr<MetaElement>(), MetaReorderedLayout::packed({meta_nrows, meta_ncols}));
+#else
     auto meta_cpu_ref =
       cutlass::TensorRef<MetaElement, MetaLayout>(
           meta_cpu.data_ptr<MetaElement>(),
           MetaLayout::packed({meta_nrows, meta_ncols}));
+    
     auto meta_reordered_cpu_ref =
       cutlass::TensorRef<MetaElement, MetaReorderedLayout>(
           meta_reordered_cpu.data_ptr<MetaElement>(),
           MetaReorderedLayout::packed({meta_nrows, meta_ncols}));
+#endif
+
+//TODO: add ROCm support/CK tensor support
+#if defined(USE_ROCM)
+    reorder_meta(meta_reordered_cpu.data_ptr<int16_t>(),
+               meta_cpu.data_ptr<int16_t>(),
+               meta_nrows, meta_ncols);
+#else
     reorder_meta(meta_reordered_cpu_ref, meta_cpu_ref, meta_nrows, meta_ncols);
+#endif
   } else if (meta_dtype == at::kInt) {
     using MetaElement = int32_t;
+#ifdef USE_ROCM
+    auto meta_cpu_ref =
+      ck::wrapper::make_tensor<ck::wrapper::MemoryTypeEnum::Generic>(meta_cpu.data_ptr<MetaElement>(), MetaLayout::packed({meta_nrows, meta_ncols}));
+    auto meta_reordered_cpu_ref =
+      ck::wrapper::make_tensor<ck::wrapper::MemoryTypeEnum::Generic>(meta_reordered_cpu.data_ptr<MetaElement>(), MetaReorderedLayout::packed({meta_nrows, meta_ncols}));
+#else    
     auto meta_cpu_ref =
       cutlass::TensorRef<MetaElement, MetaLayout>(
           meta_cpu.data_ptr<MetaElement>(),
@@ -968,7 +1036,15 @@ _to_sparse_semi_structured(const Tensor& dense) {
       cutlass::TensorRef<MetaElement, MetaReorderedLayout>(
           meta_reordered_cpu.data_ptr<MetaElement>(),
           MetaReorderedLayout::packed({meta_nrows, meta_ncols}));
+#endif
+//TODO: add ROCm support/CK tensor support
+#if defined(USE_ROCM)
+    reorder_meta(meta_reordered_cpu.data_ptr<int32_t>(),
+               meta_cpu.data_ptr<int32_t>(),
+               meta_nrows, meta_ncols);
+#else
     reorder_meta(meta_reordered_cpu_ref, meta_cpu_ref, meta_nrows, meta_ncols);
+#endif
   }
 
   return std::make_tuple(sparse_cpu.to(dense.device()),
