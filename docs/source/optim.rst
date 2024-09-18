@@ -13,13 +13,19 @@ Constructing it
 ^^^^^^^^^^^^^^^
 
 To construct an :class:`Optimizer` you have to give it an iterable containing the
-parameters (all should be :class:`~torch.autograd.Variable` s) to optimize. Then,
+parameters (all should be :class:`~torch.nn.Parameter` s) to optimize or named parameters
+(tuples of (str, :class:`~torch.nn.Parameter`)). Then,
 you can specify optimizer-specific options such as the learning rate, weight decay, etc.
 
 Example::
 
     optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
     optimizer = optim.Adam([var1, var2], lr=0.0001)
+
+Named parameters example::
+
+    optimizer = optim.SGD(model.named_parameters(), lr=0.01, momentum=0.9)
+    optimizer = optim.Adam([('layer0', var1), ('layer1', var2)], lr=0.0001)
 
 Per-parameter options
 ^^^^^^^^^^^^^^^^^^^^^
@@ -36,6 +42,11 @@ For example, this is very useful when one wants to specify per-layer learning ra
     optim.SGD([
                     {'params': model.base.parameters(), 'lr': 1e-2},
                     {'params': model.classifier.parameters()}
+                ], lr=1e-3, momentum=0.9)
+
+    optim.SGD([
+                    {'params': model.base.named_parameters(), 'lr': 1e-2},
+                    {'params': model.classifier.named_parameters()}
                 ], lr=1e-3, momentum=0.9)
 
 This means that ``model.base``'s parameters will use a learning rate of ``1e-2``, whereas
@@ -302,6 +313,76 @@ algorithms.
     lr_scheduler.CyclicLR
     lr_scheduler.OneCycleLR
     lr_scheduler.CosineAnnealingWarmRestarts
+
+How to utilize named parameters to load optimizer state dict
+--------------------------------------------
+
+The function :func:`~Optimizer.load_state_dict` ignores the optional ``param_names`` input in the
+loaded state dict if present (to maintain compatibility).
+To utilize the loaded parameters names from the loaded state dict, a custom ``register_load_state_dict_pre_hook``
+needs to be implemented.
+
+This can be useful, for instance, when the model architecture changes, but the weights and states need to
+remain unchanged. The following example demonstrates how to implement this customization.
+
+Example::
+
+    class OneLayerModel(nn.Module):
+        def __init__(self):
+            super(OneLayerModel, self).__init__()
+            self.fc = nn.Linear(3, 4)
+
+        def forward(self, x):
+            return self.fc(x)
+
+    model = OneLayerModel()
+    optimizer = optim.SGD(model.named_parameters(), lr=0.01, momentum=0.9)
+    torch.save(optimizer.state_dict(), PATH)
+
+Assuming that for the following ``model2`` we wish to load the states of ``fc`` of ``model`` into both ``fc1`` and ``fc2`` of ``model2``::
+
+    class TwoLayerModel(nn.Module):
+        def __init__(self):
+            super(OneLayerModel, self).__init__()
+            self.fc1 = nn.Linear(3, 4)
+            self.fc2 = nn.Linear(3, 4)
+
+        def forward(self, x):
+            return (self.fc1(x) + self.fc2(x)) / 2
+
+    model2 = TwoLayerModel()
+    optimizer2 = optim.SGD(model2.named_parameters(), lr=0.01, momentum=0.9)
+
+To load the state dict for ``optimizer2`` with the state dict of the previous optimizer we need the following hook::
+
+    def adapt_state_dict_ids(optimizer, state_dict):
+        adapted_state_dict = deepcopy(optimizer.state_dict())
+        # Copy setup parameters (lr, weight_decay, etc.), in case they differ in the loaded state dict.
+        for k, v in state_dict['param_groups'][0].items():
+            if k not in ['params', 'param_names']:
+                adapted_state_dict['param_groups'][0][k] = v
+
+        lookup_dict = {'fc1': 'fc', 'fc2': 'fc'}
+
+        for param_id, param_name in zip(
+                optimizer.state_dict()['param_groups'][0]['params'],
+                optimizer.state_dict()['param_groups'][0]['param_names']):
+            name_in_loaded = lookup_dict[param_name]
+            index_in_loaded_list = state_dict['param_groups'][0]['param_names'].index(name_in_loaded)
+            id_in_loaded = state_dict['param_groups'][0]['params'][index_in_loaded_list]
+
+            # Copy the state of the corresponding parameter
+            adapted_state_dict['state'][param_id] = deepcopy(state_dict['state'][id_in_loaded])
+        return adapted_state_dict
+
+    optimizer2.register_load_state_dict_pre_hook(adapt_state_dict_ids)
+    optimizer2.load_state_dict(torch.load(PATH)) # The previous optimizer saved state_dict
+
+This ensures that the adapted state_dict with the correct states for the layers of ``model2`` will be used
+during model loading.
+Note that this code is designed specifically for this example (e.g., assuming a single parameter group),
+and other cases might require different adaptations.
+
 
 Weight Averaging (SWA and EMA)
 ------------------------------

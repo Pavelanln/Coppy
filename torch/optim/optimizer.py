@@ -232,6 +232,9 @@ def _get_capturable_supported_devices(supports_xla: bool = True) -> List[str]:
 
 
 # Common doc strings among optimizers
+_params_doc = r"""params (iterable): iterable of parameters or named_parameters to optimize 
+            or iterable of dicts defining parameter groups"""
+
 _foreach_doc = r"""foreach (bool, optional): whether foreach implementation of optimizer
             is used. If unspecified by the user (so foreach is None), we will try to use
             foreach over the for-loop implementation on CUDA, since it is usually
@@ -308,7 +311,7 @@ def register_optimizer_step_post_hook(hook: GlobalOptimizerPostHook) -> Removabl
     return handle
 
 
-ParamsT: TypeAlias = Union[Iterable[torch.Tensor], Iterable[Dict[str, Any]]]
+ParamsT: TypeAlias = Union[Iterable[torch.Tensor], Iterable[Dict[str, Any]], Iterable[Tuple[str, torch.Tensor]]]
 
 _P = ParamSpec("_P")
 R = TypeVar("R")
@@ -649,12 +652,17 @@ class Optimizer:
             parameter group is a Dict. Each parameter group contains metadata
             specific to the optimizer, such as learning rate and weight decay,
             as well as a List of parameter IDs of the parameters in the group.
+            if a param group was initiated with ``named_parameters()`` the names
+            content will also be saved in the state dict.
 
         NOTE: The parameter IDs may look like indices but they are just IDs
         associating state with param_group. When loading from a state_dict,
         the optimizer will zip the param_group ``params`` (int IDs) and the
         optimizer ``param_groups`` (actual ``nn.Parameter`` s) in order to
         match state WITHOUT additional verification.
+        Parameter names (if exist) will be ignored when loading from a
+        state_dict. To use names a custom ``register_load_state_dict_pre_hook``
+        should be implemented.
 
         A returned state dict might look something like:
 
@@ -673,12 +681,14 @@ class Optimizer:
                         'weight_decay': 0,
                         ...
                         'params': [0]
+                        'param_names' ['param0']  (optional)
                     },
                     {
                         'lr': 0.001,
                         'weight_decay': 0.5,
                         ...
                         'params': [1, 2, 3]
+                        'param_names': ['param1', 'layer.weight', 'layer.bias'] (optional)
                     }
                 ]
             }
@@ -830,6 +840,9 @@ class Optimizer:
     @torch._disable_dynamo
     def load_state_dict(self, state_dict: StateDict) -> None:
         r"""Load the optimizer state.
+        The names of the parameters (if exist in :meth:`state_dict`) will be ignored.
+        To use the parameters names (when the optimized parameters are different from the loaded state dict)
+        a custom ``register_load_state_dict_pre_hook`` should be implemented to adapt the dict according to the change.
 
         Args:
             state_dict (dict): optimizer state. Should be an object returned
@@ -1013,6 +1026,27 @@ class Optimizer:
             )
         else:
             param_group["params"] = list(params)
+
+        extracted_param_tensors = []
+        param_group['param_names'] = []
+        for param in param_group["params"]:
+            if isinstance(param, tuple):
+                param_name = param[0]
+                param_group['param_names'].append(param_name)
+                extracted_param_tensors.append(param[1])
+            else:
+                extracted_param_tensors.append(param)
+                if len(param_group['param_names']) > 0:
+                    param_group['param_names'] = []
+                    extracted_param_tensors = []
+                    warnings.warn(
+                        "not all parameters in optimizer's parameter group are named_parameters. name is missing."
+                        "names will be ignored for this parameter group"
+                    )
+                    break
+        param_group["params"] = extracted_param_tensors
+        if len(param_group['param_names']) == 0:
+            param_group.pop('param_names')
 
         for param in param_group["params"]:
             if not isinstance(param, torch.Tensor):
