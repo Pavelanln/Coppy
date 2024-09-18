@@ -319,6 +319,7 @@ class GraphLowering(torch.fx.Interpreter):
             Callable[[List[ir.ExternKernelNode]], Any]
         ] = None,
         is_inference: bool = False,
+        is_backward: bool = False,
         is_const_graph: bool = False,
         const_output_index: Optional[Dict[str, int]] = None,
         const_code: Optional[str] = None,
@@ -334,6 +335,7 @@ class GraphLowering(torch.fx.Interpreter):
         )
         self.num_channels_last_conv = 0
         self.is_inference = is_inference
+        self.is_backward = is_backward
         self.is_const_graph = is_const_graph
         self.const_code = const_code
         self.const_module = const_module
@@ -463,6 +465,13 @@ class GraphLowering(torch.fx.Interpreter):
     ) -> bool:
         assert isinstance(feature, BackendFeature), feature
         return feature in self.get_backend_features(get_device_type(device))
+
+    def get_training_phase(self) -> str:
+        if self.is_inference:
+            return "inference"
+        if self.is_backward:
+            return "backward"
+        return "forward"
 
     @staticmethod
     def decide_layout_opt(gm: GraphModule, *, is_inference: bool) -> bool:
@@ -656,6 +665,7 @@ class GraphLowering(torch.fx.Interpreter):
             aot_mode=self.aot_mode,
             extern_node_serializer=self.extern_node_serializer,
             is_inference=self.is_inference,
+            is_backward=self.is_backward,
             name=self.qualify_name(subgraph_name),
         )
 
