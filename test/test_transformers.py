@@ -850,6 +850,42 @@ class TestTransformers(NNTestCase):
         self.assertEqual(masked_output, is_causal_output)
 
     @onlyCUDA
+    def test_math_backend_high_precision(self):
+        xq = torch.rand([1, 6432, 2, 80], device="cuda", dtype=torch.bfloat16) * 5
+        xk = torch.rand([1, 6432, 2, 80], device="cuda", dtype=torch.bfloat16) * 5
+        xv = torch.randn([1, 6432, 2, 80], device="cuda", dtype=torch.bfloat16)
+        mask = None
+
+        def scaled_dot_product_attention(
+            xq: torch.Tensor, xk: torch.Tensor, xv: torch.Tensor, mask: Optional[torch.Tensor], backend: SDPBackend
+        ) -> torch.Tensor:
+            n_rep = 1
+            xq, xk, xv = [tensor.transpose(1, 2) for tensor in (xq, xk, xv)]
+            xk = xk.repeat_interleave(n_rep, dim=1)
+            xv = xv.repeat_interleave(n_rep, dim=1)
+
+            with sdpa_kernel(backends=[backend]):
+                attn_output = F.scaled_dot_product_attention(
+                    xq, xk, xv, attn_mask=mask, dropout_p=0.0
+                )
+            return attn_output.transpose(1, 2)
+
+        torch.backends.cuda.allow_fp16_bf16_reduction_math_sdp(True)
+        sdp_math_low_prec_out = scaled_dot_product_attention(xq, xk, xv, mask, SDPBackend.MATH)
+        torch.backends.cuda.allow_fp16_bf16_reduction_math_sdp(False)
+        sdp_math_high_prec_out = scaled_dot_product_attention(xq, xk, xv, mask, SDPBackend.MATH)
+        sdp_flash_out = scaled_dot_product_attention(xq, xk, xv, mask, SDPBackend.FLASH_ATTENTION)
+
+        torch.testing.assert_close(sdp_math_high_prec_out, sdp_flash_out, atol=1e-2, rtol=1e-2)
+
+        try:
+            torch.testing.assert_close(sdp_math_low_prec_out, sdp_flash_out, atol=1e-2, rtol=1e-2)
+        except AssertionError as e:
+            self.assertTrue("Tensor-likes are not close!" in str(e))
+        else:
+            raise Exception("low precision in math mode is expected to cause high numerical error!")
+
+    @onlyCUDA
     @parametrize("nb_heads", [1, 8])
     @parametrize("bias", [True, False])
     def test_mha_native_args(self, nb_heads, bias):
